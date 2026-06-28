@@ -177,3 +177,260 @@ def train_model_async_task(db: Session, dataset_id: int, model_id: int):
             message=f"AutoML training failed for model version {db_model.version}: {str(e)}",
             severity="ERROR"
         )
+
+
+def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: int, temp_model_path: str):
+    """
+    FastAPI BackgroundTask to retrain an uploaded scikit-learn model/pipeline on a new dataset.
+    """
+    import joblib
+    import numpy as np
+    from sklearn.model_selection import train_test_split
+    from sklearn.pipeline import Pipeline as SKPipeline
+    from sklearn.metrics import (
+        accuracy_score, precision_score, recall_score, f1_score, roc_auc_score,
+        r2_score, mean_absolute_error, mean_squared_error
+    )
+    from app.services.automl import build_preprocessor
+
+    db_dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    db_model = db.query(TrainedModel).filter(TrainedModel.id == model_id).first()
+    
+    if not db_dataset or not db_model:
+        logger.error(f"Dataset ID {dataset_id} or Model ID {model_id} not found during custom model retraining.")
+        return
+
+    try:
+        db_model.status = "TRAINING"
+        db_model.status_message = "Retraining custom uploaded model..."
+        db.commit()
+
+        log_event(
+            db, 
+            event_type="TRAINING", 
+            message=f"Starting retraining of uploaded model version {db_model.version} on dataset: {db_dataset.name}.",
+            severity="INFO"
+        )
+
+        # 1. Load dataset CSV
+        if not os.path.exists(db_dataset.file_path):
+            raise FileNotFoundError(f"Dataset file missing at {db_dataset.file_path}")
+        df = pd.read_csv(db_dataset.file_path)
+
+        # Prepare features and target
+        features_metadata = db_dataset.features_metadata or {}
+        numerical_cols = [col for col, meta in features_metadata.items() if meta.get("role") != "ignore" and meta["type"] == "numerical"]
+        categorical_cols = [col for col, meta in features_metadata.items() if meta.get("role") != "ignore" and meta["type"] == "categorical"]
+        
+        target_col = db_dataset.target_column
+        problem_type = db_dataset.problem_type
+
+        X = df[numerical_cols + categorical_cols]
+        y = df[target_col]
+
+        # Handle missing targets
+        if y.isnull().any():
+            valid_indices = y.dropna().index
+            X = X.loc[valid_indices]
+            y = y.loc[valid_indices]
+
+        # Train/Test Split for metrics
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        # 2. Load uploaded model
+        if not os.path.exists(temp_model_path):
+            raise FileNotFoundError(f"Uploaded model file missing at {temp_model_path}")
+        
+        loaded_obj = joblib.load(temp_model_path)
+        
+        # Extract pipeline if dict, or use directly
+        if isinstance(loaded_obj, dict) and "pipeline" in loaded_obj:
+            pipeline = loaded_obj["pipeline"]
+        else:
+            pipeline = loaded_obj
+
+        # If it is not a pipeline, wrap it in our preprocessor
+        if not hasattr(pipeline, "steps"):
+            logger.info("Uploaded object is a raw estimator. Wrapping in preprocessor pipeline.")
+            preprocessor = build_preprocessor(numerical_cols, categorical_cols)
+            pipeline = SKPipeline(steps=[
+                ('preprocessor', preprocessor),
+                ('model', pipeline)
+            ])
+
+        # Encode y if classification and labels are categorical
+        label_mapping = None
+        unique_classes = None
+        if problem_type == "classification":
+            y_train = y_train.astype(str)
+            y_test = y_test.astype(str)
+            unique_classes = sorted(list(set(y_train.unique()) | set(y_test.unique())))
+            label_mapping = {val: idx for idx, val in enumerate(unique_classes)}
+            y_train = y_train.map(label_mapping)
+            y_test = y_test.map(label_mapping)
+
+        # Fit model on training split to compute metrics
+        pipeline.fit(X_train, y_train)
+        preds = pipeline.predict(X_test)
+
+        # Evaluate model
+        metrics = {}
+        if problem_type == "classification":
+            metrics["label_mapping"] = label_mapping
+            acc = float(accuracy_score(y_test, preds))
+            f1 = float(f1_score(y_test, preds, average='weighted', zero_division=0))
+            prec = float(precision_score(y_test, preds, average='weighted', zero_division=0))
+            rec = float(recall_score(y_test, preds, average='weighted', zero_division=0))
+            
+            try:
+                if len(unique_classes) == 2:
+                    probs = pipeline.predict_proba(X_test)[:, 1]
+                    roc = float(roc_auc_score(y_test, probs))
+                else:
+                    probs = pipeline.predict_proba(X_test)
+                    roc = float(roc_auc_score(y_test, probs, multi_class='ovr'))
+            except Exception:
+                roc = 0.0
+
+            metrics.update({
+                "accuracy": acc,
+                "f1_score": f1,
+                "precision": prec,
+                "recall": rec,
+                "roc_auc": roc
+            })
+            new_metric = f1
+        else:
+            r2 = float(r2_score(y_test, preds))
+            mae = float(mean_absolute_error(y_test, preds))
+            mse = float(mean_squared_error(y_test, preds))
+            rmse = float(np.sqrt(mse))
+
+            metrics.update({
+                "r2_score": r2,
+                "mae": mae,
+                "mse": mse,
+                "rmse": rmse
+            })
+            new_metric = r2
+
+        # 3. Fit pipeline on full dataset
+        y_full = y
+        if problem_type == "classification" and label_mapping:
+            y_full = y_full.astype(str).map(label_mapping)
+        pipeline.fit(X, y_full)
+
+        # Save retrained model to disk
+        model_filename = f"model_v{db_model.version}_custom_{db_model.model_name}.joblib"
+        model_save_path = os.path.join(settings.MODEL_DIR, model_filename)
+        os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+        joblib.dump({
+            "pipeline": pipeline,
+            "problem_type": problem_type,
+            "target_column": target_col,
+            "features_metadata": features_metadata,
+            "label_mapping": label_mapping,
+            "classes": unique_classes if problem_type == "classification" else None
+        }, model_save_path)
+
+        # 4. Log details to MLflow Registry
+        run_name = f"run_v{db_model.version}_{db_model.algorithm.replace(' ', '_')}"
+        log_params = {
+            "dataset_name": db_dataset.name,
+            "dataset_rows": len(df),
+            "algorithm": db_model.algorithm,
+            "problem_type": db_dataset.problem_type,
+            "custom_upload": "true"
+        }
+        
+        mlflow_run_id = registry_service.log_and_register_model(
+            experiment_name="Ship_It_ML",
+            run_name=run_name,
+            model_name=db_model.model_name,
+            metrics=metrics,
+            params=log_params,
+            model_path=model_save_path
+        )
+
+        # 5. Update TrainedModel status
+        db_model.status = "DONE"
+        db_model.metrics = metrics
+        db_model.file_path = model_save_path
+        db_model.mlflow_run_id = mlflow_run_id
+        db_model.status_message = "Custom model retraining successfully completed."
+        db.commit()
+
+        log_event(
+            db, 
+            event_type="TRAINING", 
+            message=f"Custom model version {db_model.version} ({db_model.algorithm}) trained successfully. Metric Score: {new_metric:.4f}",
+            severity="INFO"
+        )
+
+        # 6. Evaluate for automatic deployment/promotion
+        active_deployment = db.query(Deployment)\
+            .join(TrainedModel)\
+            .filter(TrainedModel.dataset_id == dataset_id, Deployment.status == "active")\
+            .first()
+
+        if active_deployment:
+            active_model = db.query(TrainedModel).filter(TrainedModel.id == active_deployment.model_id).first()
+            if active_model and active_model.metrics:
+                metric_key = "f1_score" if db_dataset.problem_type == "classification" else "r2_score"
+                active_metric = active_model.metrics.get(metric_key, -1.0)
+
+                logger.info(f"Comparing performance: Active Model Metric: {active_metric:.4f}, Retrained Custom Model Metric: {new_metric:.4f}")
+
+                if new_metric > active_metric:
+                    log_event(
+                        db,
+                        event_type="RETRAINING",
+                        message=f"Retrained custom model v{db_model.version} ({new_metric:.4f}) outperformed active model v{active_model.version} ({active_metric:.4f}). Auto-promoting...",
+                        severity="INFO"
+                    )
+
+                    # Swap deployments
+                    active_deployment.status = "inactive"
+                    
+                    new_deployment = Deployment(
+                        model_id=db_model.id,
+                        status="active",
+                        drift_threshold=active_deployment.drift_threshold,
+                        performance_threshold=active_deployment.performance_threshold
+                    )
+                    db.add(new_deployment)
+                    db.commit()
+                    db.refresh(new_deployment)
+
+                    deployment_manager.swap_active_model(new_deployment.id, db_model.id, db_model.file_path)
+                    
+                    log_event(
+                        db,
+                        event_type="DEPLOYMENT",
+                        message=f"Custom model v{db_model.version} deployed dynamically as active model.",
+                        severity="INFO"
+                    )
+
+        # Cleanup temp file
+        if os.path.exists(temp_model_path):
+            os.remove(temp_model_path)
+
+    except Exception as e:
+        logger.error(f"Error during async custom model training task: {e}", exc_info=True)
+        db_model.status = "FAILED"
+        db_model.status_message = str(e)
+        db.commit()
+
+        # Cleanup temp file if exists
+        if os.path.exists(temp_model_path):
+            try:
+                os.remove(temp_model_path)
+            except Exception:
+                pass
+        
+        log_event(
+            db, 
+            event_type="TRAINING", 
+            message=f"Custom model retraining failed for version {db_model.version}: {str(e)}",
+            severity="ERROR"
+        )

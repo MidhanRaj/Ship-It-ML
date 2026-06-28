@@ -126,9 +126,22 @@ export default function DatasetUpload() {
     const numCols = Object.values(featMeta).filter(v => v.type === 'numerical').length;
     const catCols = Object.values(featMeta).filter(v => v.type === 'categorical').length;
     const nullTotal = Object.values(featMeta).reduce((a, v) => a + (v.null_count ?? 0), 0);
+    const aiDescription = dataset.description;
 
     return (
       <div className="space-y-5 fade-in">
+        {/* AI Description Banner */}
+        {aiDescription && (
+          <div className="flex gap-3 px-4 py-4 rounded-xl fade-in" style={{ background: 'rgba(59,130,246,0.07)', border: '1px solid rgba(59,130,246,0.2)' }}>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(59,130,246,0.15)' }}>
+              <Target size={15} style={{ color: '#3b82f6' }} />
+            </div>
+            <div>
+              <div className="text-xs font-semibold mb-1" style={{ color: '#3b82f6' }}>AI Dataset Profile</div>
+              <div className="text-sm" style={{ color: '#94a3b8' }}>{aiDescription}</div>
+            </div>
+          </div>
+        )}
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
@@ -160,27 +173,36 @@ export default function DatasetUpload() {
             <table className="w-full text-sm">
               <thead>
                 <tr>
-                  {['Column', 'Type', 'Null Count', 'Dtype'].map(h => <th key={h} className="table-header">{h}</th>)}
+                  {['Column', 'Role', 'Type', 'Null Count', 'Dtype', 'AI Insight'].map(h => <th key={h} className="table-header">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(featMeta).map(([col, meta]) => (
-                  <tr key={col} className="table-row">
-                    <td className="table-cell">
-                      <div className="flex items-center gap-1.5">
-                        <span className="mono font-medium" style={{ color: col === dataset.target_column ? '#3b82f6' : '#e2e8f0' }}>{col}</span>
-                        {col === dataset.target_column && <span className="badge-info text-xs">target</span>}
-                      </div>
-                    </td>
-                    <td className="table-cell">
-                      <span className={meta.type === 'numerical' ? 'badge-success' : 'badge-warning'}>{meta.type}</span>
-                    </td>
-                    <td className="table-cell">
-                      <span style={{ color: meta.null_count > 0 ? '#f59e0b' : '#10b981' }}>{meta.null_count}</span>
-                    </td>
-                    <td className="table-cell mono text-xs">{meta.dtype}</td>
-                  </tr>
-                ))}
+                {Object.entries(featMeta).map(([col, meta]) => {
+                  const role = meta.role ?? 'feature';
+                  const explanation = meta.explanation ?? '';
+                  const roleBadge = role === 'target' ? 'badge-info' : role === 'ignore' ? 'badge-error' : 'badge-success';
+                  return (
+                    <tr key={col} className="table-row">
+                      <td className="table-cell">
+                        <div className="flex items-center gap-1.5">
+                          <span className="mono font-medium" style={{ color: col === dataset.target_column ? '#3b82f6' : '#e2e8f0' }}>{col}</span>
+                          {col === dataset.target_column && <span className="badge-info text-xs">target</span>}
+                        </div>
+                      </td>
+                      <td className="table-cell">
+                        <span className={roleBadge}>{role}</span>
+                      </td>
+                      <td className="table-cell">
+                        <span className={meta.type === 'numerical' ? 'badge-success' : 'badge-warning'}>{meta.type}</span>
+                      </td>
+                      <td className="table-cell">
+                        <span style={{ color: meta.null_count > 0 ? '#f59e0b' : '#10b981' }}>{meta.null_count}</span>
+                      </td>
+                      <td className="table-cell mono text-xs">{meta.dtype}</td>
+                      <td className="table-cell text-xs" style={{ color: '#64748b', maxWidth: '200px' }}>{explanation}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

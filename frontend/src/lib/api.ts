@@ -44,6 +44,16 @@ export async function triggerTraining(datasetId: number) {
   return res.json() as Promise<TrainedModel>;
 }
 
+export async function uploadCustomModel(file: File, datasetId: number, modelName: string) {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('dataset_id', String(datasetId));
+  form.append('model_name', modelName);
+  const res = await fetch(`${API_BASE}/api/models/upload-custom`, { method: 'POST', body: form });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<TrainedModel>;
+}
+
 export async function getModelStatus(modelId: number) {
   return request<TrainedModel>(`/api/models/train/status/${modelId}`);
 }
@@ -92,6 +102,8 @@ export interface FeatureMeta {
   null_count: number;
   dtype: string;
   stats: Record<string, number>;
+  role?: string;
+  explanation?: string;
 }
 export type FeaturesMetadata = Record<string, FeatureMeta>;
 
@@ -103,6 +115,13 @@ export interface Dataset {
   target_column: string;
   problem_type: string;
   features_metadata: FeaturesMetadata;
+  description?: string;
+  ai_analysis?: {
+    description?: string;
+    suggested_target?: string;
+    suggested_problem_type?: string;
+    column_analysis?: Record<string, { role: string; type: string; explanation: string }>;
+  };
   created_at: string;
 }
 

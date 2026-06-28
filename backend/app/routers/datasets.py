@@ -9,6 +9,7 @@ from app.models import Dataset
 from app.schemas import DatasetRead
 from app.services.automl import inspect_dataset
 from app.services.audit_logger import log_event
+from app.services.ai_analyzer import analyze_dataset_with_ai
 
 router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
 
@@ -44,8 +45,27 @@ async def upload_dataset(
         row_count = len(df)
         column_count = len(df.columns)
 
-        # Inspect dataset schema and deduce task type
-        final_target_col, problem_type, features_metadata = inspect_dataset(df, target_column)
+        # Call AI analyzer
+        ai_result = analyze_dataset_with_ai(df, target_column)
+        final_target_col = target_column or ai_result.get("suggested_target")
+        problem_type = ai_result.get("suggested_problem_type", "classification")
+
+        # Inspect dataset schema to get basic stats
+        _, _, basic_meta = inspect_dataset(df, final_target_col)
+
+        # Enrich basic metadata with AI roles and explanations
+        column_analysis = ai_result.get("column_analysis", {})
+        enriched_metadata = {}
+        for col, meta in basic_meta.items():
+            ai_col_info = column_analysis.get(col, {})
+            enriched_metadata[col] = {
+                "type": ai_col_info.get("type", meta["type"]),
+                "null_count": meta["null_count"],
+                "dtype": meta["dtype"],
+                "stats": meta["stats"],
+                "role": ai_col_info.get("role", "feature"),
+                "explanation": ai_col_info.get("explanation", "Predictive feature.")
+            }
 
         # Create database entry
         db_dataset = Dataset(
@@ -55,7 +75,9 @@ async def upload_dataset(
             column_count=column_count,
             target_column=final_target_col,
             problem_type=problem_type,
-            features_metadata=features_metadata
+            features_metadata=enriched_metadata,
+            description=ai_result.get("description", ""),
+            ai_analysis=ai_result
         )
         db.add(db_dataset)
         db.commit()

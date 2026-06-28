@@ -14,6 +14,8 @@ class Dataset(Base):
     target_column = Column(String)
     problem_type = Column(String)  # "classification" or "regression"
     features_metadata = Column(JSON)  # Column names and their data types, null counts, etc.
+    description = Column(Text, nullable=True)
+    ai_analysis = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     models = relationship("TrainedModel", back_populates="dataset", cascade="all, delete-orphan")

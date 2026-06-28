@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     DEFAULT_DRIFT_THRESHOLD: float = 0.3  # Ratio of features drifted to trigger alert
     UPLOAD_DIR: str = "uploads"
     MODEL_DIR: str = "models"
+    GEMINI_API_KEY: str = ""
 
     class Config:
         env_file = ".env"

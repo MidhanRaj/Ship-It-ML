@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Form
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Form, UploadFile, File
 from sqlalchemy.orm import Session
+import os
+import uuid
+import shutil
+from app.config import settings
 from app.database import get_db
 from app.models import Dataset, TrainedModel
 from app.schemas import TrainedModelRead
-from app.services.retrainer import train_model_async_task
+from app.services.retrainer import train_model_async_task, retrain_uploaded_model_async_task
 
 router = APIRouter(prefix="/api/models", tags=["Models"])
 
@@ -63,3 +67,55 @@ def list_models(db: Session = Depends(get_db)):
     List all trained models and their status / metrics.
     """
     return db.query(TrainedModel).order_by(TrainedModel.created_at.desc()).all()
+
+
+@router.post("/upload-custom", response_model=TrainedModelRead)
+async def upload_custom_model(
+    dataset_id: int = Form(...),
+    model_name: str = Form(...),
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload an existing scikit-learn model (.joblib) and retrain it on a selected dataset.
+    """
+    if not file.filename.endswith(".joblib"):
+        raise HTTPException(status_code=400, detail="Only .joblib model files are supported.")
+
+    # Verify dataset exists
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+
+    # Save uploaded file temporarily
+    temp_filename = f"temp_{uuid.uuid4()}_{file.filename}"
+    temp_path = os.path.join(settings.UPLOAD_DIR, temp_filename)
+    
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to save uploaded model: {str(e)}")
+
+    # Calculate model version
+    existing_versions = db.query(TrainedModel).filter(TrainedModel.dataset_id == dataset_id).count()
+    next_version = existing_versions + 1
+
+    # Create model record in PENDING state
+    db_model = TrainedModel(
+        dataset_id=dataset_id,
+        model_name=model_name or f"{dataset.name.replace('.csv', '')}_custom_v{next_version}",
+        algorithm="Custom Uploaded",
+        version=next_version,
+        status="PENDING",
+        status_message="Custom model retrain job queued."
+    )
+    db.add(db_model)
+    db.commit()
+    db.refresh(db_model)
+
+    # Queue background task
+    background_tasks.add_task(retrain_uploaded_model_async_task, db, dataset_id, db_model.id, temp_path)
+
+    return db_model

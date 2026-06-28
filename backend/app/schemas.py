@@ -12,6 +12,8 @@ class DatasetCreate(DatasetBase):
     target_column: str
     problem_type: str
     features_metadata: Dict[str, Any]
+    description: Optional[str] = None
+    ai_analysis: Optional[Dict[str, Any]] = None
 
 class DatasetRead(DatasetBase):
     id: int
@@ -21,6 +23,8 @@ class DatasetRead(DatasetBase):
     target_column: str
     problem_type: str
     features_metadata: Dict[str, Any]
+    description: Optional[str] = None
+    ai_analysis: Optional[Dict[str, Any]] = None
     created_at: datetime
 
     class Config:

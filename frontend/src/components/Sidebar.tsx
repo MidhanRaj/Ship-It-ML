@@ -1,12 +1,13 @@
 'use client';
 
-import { LayoutDashboard, Upload, Trophy, Activity, ScrollText, Cpu, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Upload, Trophy, Activity, ScrollText, Cpu, ChevronRight, PackagePlus } from 'lucide-react';
 import type { Tab } from '@/app/page';
 
 const NAV_ITEMS: { id: Tab; label: string; icon: React.ElementType; description: string }[] = [
   { id: 'overview', label: 'Dashboard', icon: LayoutDashboard, description: 'System overview' },
   { id: 'upload', label: 'Dataset Upload', icon: Upload, description: 'Import & analyze data' },
   { id: 'models', label: 'Model Registry', icon: Trophy, description: 'Leaderboard & deploy' },
+  { id: 'custom', label: 'Upload Model', icon: PackagePlus, description: 'Upload & retrain pipeline' },
   { id: 'monitoring', label: 'Monitoring', icon: Activity, description: 'Drift & predictions' },
   { id: 'logs', label: 'Audit Logs', icon: ScrollText, description: 'Event history' },
 ];

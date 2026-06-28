@@ -109,13 +109,14 @@ def train_and_evaluate(
     Performs preprocessing, trains multiple models with RandomizedSearchCV,
     evaluates them, selects the best model, and saves the pipeline.
     """
-    # 1. Split features and target
-    X = df.drop(columns=[target_col])
-    y = df[target_col]
+    # Determine numerical and categorical feature lists, excluding ignored columns
+    numerical_cols = [col for col, meta in features_metadata.items() if meta.get("role") != "ignore" and meta["type"] == "numerical"]
+    categorical_cols = [col for col, meta in features_metadata.items() if meta.get("role") != "ignore" and meta["type"] == "categorical"]
 
-    # Determine numerical and categorical feature lists
-    numerical_cols = [col for col, meta in features_metadata.items() if meta["type"] == "numerical"]
-    categorical_cols = [col for col, meta in features_metadata.items() if meta["type"] == "categorical"]
+    # 1. Split features and target
+    features_to_use = numerical_cols + categorical_cols
+    X = df[features_to_use]
+    y = df[target_col]
 
     # Handle missing targets
     if y.isnull().any():
