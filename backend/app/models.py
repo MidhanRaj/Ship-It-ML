@@ -16,7 +16,7 @@ class Dataset(Base):
     features_metadata = Column(JSON)  # Column names and their data types, null counts, etc.
     description = Column(Text, nullable=True)
     ai_analysis = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     models = relationship("TrainedModel", back_populates="dataset", cascade="all, delete-orphan")
 
@@ -32,7 +32,7 @@ class TrainedModel(Base):
     file_path = Column(String)  # Path to saved model file
     version = Column(Integer)
     mlflow_run_id = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
     status = Column(String, default="PENDING")  # "PENDING", "TRAINING", "DONE", "FAILED"
     status_message = Column(Text, nullable=True)
 
@@ -46,7 +46,7 @@ class Deployment(Base):
     id = Column(Integer, primary_key=True, index=True)
     model_id = Column(Integer, ForeignKey("trained_models.id"))
     status = Column(String, default="inactive")  # "active" or "inactive"
-    deployed_at = Column(DateTime, default=datetime.datetime.utcnow)
+    deployed_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
     prediction_count = Column(Integer, default=0)
     drift_threshold = Column(Float, default=0.3)
     performance_threshold = Column(Float, default=0.7)
@@ -64,7 +64,7 @@ class PredictionLog(Base):
     input_data = Column(JSON)
     prediction_output = Column(JSON)
     actual_value = Column(String, nullable=True)  # Populated when ground truth feedback is provided
-    logged_at = Column(DateTime, default=datetime.datetime.utcnow)
+    logged_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     deployment = relationship("Deployment", back_populates="prediction_logs")
 
@@ -76,7 +76,7 @@ class DriftReport(Base):
     deployment_id = Column(Integer, ForeignKey("deployments.id"))
     drift_score = Column(Float)  # Ratio of features showing drift
     metrics = Column(JSON)  # Detailed drift metrics per feature
-    checked_at = Column(DateTime, default=datetime.datetime.utcnow)
+    checked_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
     has_drift = Column(Boolean, default=False)
 
     deployment = relationship("Deployment", back_populates="drift_reports")
@@ -89,4 +89,4 @@ class AuditLog(Base):
     event_type = Column(String)  # "TRAINING", "DEPLOYMENT", "DRIFT", "RETRAINING", "SYSTEM"
     message = Column(Text)
     severity = Column(String)  # "INFO", "WARNING", "ERROR"
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))

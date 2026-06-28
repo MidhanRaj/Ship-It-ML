@@ -1,8 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 @layer base {
   :root {
@@ -62,7 +59,14 @@
   }
 
   .btn-primary {
-    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: all 0.2s;
     background: linear-gradient(135deg, #3b82f6, #2563eb);
     color: white;
     border: 1px solid rgba(59, 130, 246, 0.3);
@@ -81,7 +85,14 @@
   }
 
   .btn-secondary {
-    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: all 0.2s;
     background: rgba(255,255,255,0.04);
     color: var(--text-secondary);
     border: 1px solid var(--border);
@@ -94,7 +105,14 @@
   }
 
   .btn-danger {
-    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: all 0.2s;
     background: rgba(244, 63, 94, 0.12);
     color: #fb7185;
     border: 1px solid rgba(244, 63, 94, 0.2);
@@ -106,9 +124,12 @@
   }
 
   .metric-card {
-    @apply glass-card p-5 flex flex-col gap-2;
     position: relative;
     overflow: hidden;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
 
   .metric-card::before {
@@ -124,46 +145,90 @@
   .metric-card:hover::before { opacity: 1; }
 
   .badge {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
   }
 
   .badge-success {
-    @apply badge;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
     background: rgba(16, 185, 129, 0.12);
     color: #34d399;
     border: 1px solid rgba(16, 185, 129, 0.2);
   }
 
   .badge-warning {
-    @apply badge;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
     background: rgba(245, 158, 11, 0.12);
     color: #fbbf24;
     border: 1px solid rgba(245, 158, 11, 0.2);
   }
 
   .badge-error {
-    @apply badge;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
     background: rgba(244, 63, 94, 0.12);
     color: #fb7185;
     border: 1px solid rgba(244, 63, 94, 0.2);
   }
 
   .badge-info {
-    @apply badge;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
     background: rgba(59, 130, 246, 0.12);
     color: #93c5fd;
     border: 1px solid rgba(59, 130, 246, 0.2);
   }
 
   .badge-neutral {
-    @apply badge;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
     background: rgba(148, 163, 184, 0.1);
     color: var(--text-secondary);
     border: 1px solid var(--border);
   }
 
   .sidebar-link {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    cursor: pointer;
     color: var(--text-secondary);
   }
 
@@ -179,17 +244,25 @@
   }
 
   .section-title {
-    @apply text-lg font-semibold mb-1;
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
     color: var(--text-primary);
   }
 
   .section-subtitle {
-    @apply text-sm mb-5;
+    font-size: 0.875rem;
+    margin-bottom: 1.25rem;
     color: var(--text-muted);
   }
 
   .input-field {
-    @apply w-full px-3 py-2 rounded-lg text-sm transition-all outline-none;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+    outline: none;
     background: rgba(255,255,255,0.04);
     border: 1px solid var(--border);
     color: var(--text-primary);
@@ -205,19 +278,25 @@
   .input-field::placeholder { color: var(--text-muted); }
 
   .table-header {
-    @apply text-xs font-medium uppercase tracking-wider px-4 py-3 text-left;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.75rem 1rem;
+    text-align: left;
     color: var(--text-muted);
     border-bottom: 1px solid var(--border);
   }
 
   .table-cell {
-    @apply px-4 py-3 text-sm;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     border-bottom: 1px solid rgba(30, 45, 71, 0.5);
   }
 
   .table-row {
-    @apply transition-colors duration-150;
+    transition: background-color 0.15s;
   }
 
   .table-row:hover { background: rgba(255,255,255,0.02); }

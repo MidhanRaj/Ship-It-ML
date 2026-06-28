@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { BarChart2, Zap, TrendingUp, Activity, Shield, RefreshCw, Clock, Database, AlertTriangle, CheckCircle } from 'lucide-react';
 import { getActiveDeployment, getModels, getAuditLogs, type Deployment, type TrainedModel, type AuditLog } from '@/lib/api';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -26,7 +26,7 @@ function MetricKPI({ label, value, sub, icon: Icon, color }: { label: string; va
 }
 
 function Sparkline({ color }: { color: string }) {
-  const data = Array.from({ length: 20 }, (_, i) => ({ v: Math.floor(Math.random() * 60) + 20 + i * 2 }));
+  const data = useMemo(() => Array.from({ length: 20 }, (_, i) => ({ v: Math.floor(Math.random() * 60) + 20 + i * 2 })), []);
   return (
     <ResponsiveContainer width="100%" height={60}>
       <AreaChart data={data} margin={{ top: 4, bottom: 4, left: 0, right: 0 }}>
@@ -57,7 +57,10 @@ export default function OverviewDashboard() {
   const [models, setModels] = useState<TrainedModel[]>([]);
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => { setIsMounted(true); }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,17 +75,18 @@ export default function OverviewDashboard() {
     }
   }, []);
 
+
   useEffect(() => { load(); }, [load]);
 
   const activeModel = deployment?.model;
   const doneModels = models.filter(m => m.status === 'DONE');
   const trainingModels = models.filter(m => m.status === 'TRAINING' || m.status === 'PENDING');
 
-  // Simulate prediction trend data
-  const predTrend = Array.from({ length: 12 }, (_, i) => ({
+  // Stable chart data — useMemo prevents regeneration on every render
+  const predTrend = useMemo(() => Array.from({ length: 12 }, (_, i) => ({
     h: `${i * 2}h`,
     preds: Math.floor(Math.random() * 120) + 30
-  }));
+  })), []);
 
   const metricKey = activeModel?.metrics ? (Object.keys(activeModel.metrics).find(k => ['f1_score', 'r2_score'].includes(k))) : null;
   const metricVal = metricKey && activeModel?.metrics ? (activeModel.metrics[metricKey] * 100).toFixed(1) + '%' : '—';
@@ -195,7 +199,9 @@ export default function OverviewDashboard() {
       <div className="glass-card p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="section-title">Recent Events</div>
-          <span className="text-xs" style={{ color: '#64748b' }}>Last refresh: {lastRefresh.toLocaleTimeString()}</span>
+          <span className="text-xs" style={{ color: '#64748b' }} suppressHydrationWarning>
+            Last refresh: {isMounted && lastRefresh ? lastRefresh.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+          </span>
         </div>
         {logs.length === 0 ? (
           <div className="text-sm text-center py-8" style={{ color: '#475569' }}>No events logged yet.</div>
@@ -211,7 +217,9 @@ export default function OverviewDashboard() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className={log.severity === 'ERROR' ? 'badge-error' : log.severity === 'WARNING' ? 'badge-warning' : 'badge-success'}>{log.event_type}</span>
-                    <span className="text-xs mono" style={{ color: '#475569' }}>{new Date(log.created_at).toLocaleTimeString()}</span>
+                    <span className="text-xs mono" style={{ color: '#475569' }} suppressHydrationWarning>
+                      {isMounted ? new Date(log.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                    </span>
                   </div>
                   <div className="text-sm truncate" style={{ color: '#94a3b8' }}>{log.message}</div>
                 </div>

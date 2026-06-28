@@ -124,22 +124,24 @@ def train_and_evaluate(
         X = X.loc[valid_indices]
         y = y.loc[valid_indices]
 
+    # Build label mapping from FULL y BEFORE splitting.
+    # This ensures every CV fold and train/test split uses the same
+    # contiguous 0..N mapping, preventing the "Invalid classes" error
+    # that occurs when a CV fold's validation set contains classes
+    # the fold's training set never saw.
+    label_mapping = None
+    unique_classes = None
+    if problem_type == "classification":
+        y_str = y.astype(str)
+        unique_classes = sorted(y_str.unique().tolist())
+        label_mapping = {val: idx for idx, val in enumerate(unique_classes)}
+        y = y_str.map(label_mapping)
+
     # Train/Test Split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     # Build the Preprocessor
     preprocessor = build_preprocessor(numerical_cols, categorical_cols)
-
-    # Encode y if classification and labels are categorical
-    label_mapping = None
-    if problem_type == "classification":
-        y_train = y_train.astype(str)
-        y_test = y_test.astype(str)
-        # Sort classes to ensure deterministic ordering
-        unique_classes = sorted(list(set(y_train.unique()) | set(y_test.unique())))
-        label_mapping = {val: idx for idx, val in enumerate(unique_classes)}
-        y_train = y_train.map(label_mapping)
-        y_test = y_test.map(label_mapping)
 
     # Define algorithms & parameter distributions for tuning
     models_to_train = {}
@@ -218,11 +220,21 @@ def train_and_evaluate(
             search = pipeline.fit(X_train, y_train)
             best_model_pipeline = search
         else:
-            # Determine dynamic CV folds based on training set sizes and cardinality
+            # Determine CV viability:
+            # - Regression: need at least 2 samples per fold
+            # - Classification: need at least 2 samples for EVERY class AND
+            #   low enough class cardinality for CV to be meaningful.
+            #   With hundreds/thousands of sparse classes, CV folds will
+            #   inevitably miss classes → "Invalid classes" error.
             if problem_type == "classification":
-                class_counts = y_train.value_counts()
-                min_class_count = int(class_counts.min()) if not class_counts.empty else 0
-                cv_splits = min(3, min_class_count)
+                n_unique_classes = len(unique_classes) if unique_classes else y_train.nunique()
+                if n_unique_classes > 30:
+                    # Too many classes for CV to work reliably — skip it
+                    cv_splits = 0
+                else:
+                    class_counts = y_train.value_counts()
+                    min_class_count = int(class_counts.min()) if not class_counts.empty else 0
+                    cv_splits = min(3, min_class_count)
             else:
                 cv_splits = min(3, len(y_train))
 
@@ -240,7 +252,7 @@ def train_and_evaluate(
                 search.fit(X_train, y_train)
                 best_model_pipeline = search.best_estimator_
             else:
-                # Fall back to fitting baseline model on the training set
+                # Fall back: direct fit on training set (no CV)
                 pipeline.fit(X_train, y_train)
                 best_model_pipeline = pipeline
 
@@ -299,12 +311,9 @@ def train_and_evaluate(
             best_algo_name = name
             best_pipeline = best_model_pipeline
 
-    # Refit best model on full dataset
-    y_full = y
-    if problem_type == "classification" and label_mapping:
-        y_full = y_full.astype(str).map(label_mapping)
-
-    best_pipeline.fit(X, y_full)
+    # Refit best model on full dataset.
+    # y is already encoded (label_mapping was applied before the split)
+    best_pipeline.fit(X, y)
 
     # Save best model to disk
     os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
@@ -314,6 +323,7 @@ def train_and_evaluate(
         "target_column": target_col,
         "features_metadata": features_metadata,
         "label_mapping": label_mapping,
+        "inverse_label_mapping": {v: k for k, v in label_mapping.items()} if label_mapping else None,
         "classes": unique_classes if problem_type == "classification" else None
     }, model_save_path)
 
