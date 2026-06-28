@@ -74,7 +74,7 @@ def train_model_async_task(db: Session, dataset_id: int, model_id: int):
                 df = pd.concat([df, df_feedback], ignore_index=True)
 
         # Define file save path
-        model_filename = f"model_v{db_model.version}_{db_model.algorithm}.joblib"
+        model_filename = f"model_id{db_model.id}_v{db_model.version}_{db_model.algorithm}.joblib"
         model_save_path = os.path.join(settings.MODEL_DIR, model_filename)
 
         # 4. Fit AutoML models and tune hyperparameters
@@ -349,7 +349,7 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
             pipeline.fit(X, y)
 
         # Save retrained model to disk
-        model_filename = f"model_v{db_model.version}_custom_{db_model.model_name}.joblib"
+        model_filename = f"model_id{db_model.id}_v{db_model.version}_custom_{db_model.model_name}.joblib"
         model_save_path = os.path.join(settings.MODEL_DIR, model_filename)
         os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
         joblib.dump({
@@ -359,7 +359,7 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
             "features_metadata": features_metadata,
             "label_mapping": label_mapping,
             "classes": unique_classes if problem_type == "classification" else None
-        }, model_save_path)
+        }, model_save_path, compress=3)
 
         # 4. Log details to MLflow Registry
         run_name = f"run_v{db_model.version}_{db_model.algorithm.replace(' ', '_')}"

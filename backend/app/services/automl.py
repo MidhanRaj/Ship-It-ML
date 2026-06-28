@@ -48,22 +48,54 @@ def _coerce_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
                 df[col] = converted
     return df
 
+def _is_id_or_url_column(series: pd.Series) -> bool:
+    """
+    Heuristic to detect ID-like or URL-like columns that are useless for ML.
+    Returns True if the column should be excluded from training.
+    """
+    if series.dtype == object:
+        sample = series.dropna().astype(str)
+        if sample.empty:
+            return False
+        # Check for URL patterns
+        url_ratio = sample.str.contains(r'https?://|www\.', regex=True, na=False).mean()
+        if url_ratio > 0.3:
+            return True
+        # Check for high cardinality relative to dataset size (likely an ID/key column)
+        uniqueness_ratio = series.nunique() / max(len(series.dropna()), 1)
+        if uniqueness_ratio > 0.7 and series.nunique() > 50:
+            return True
+    else:
+        # Numeric high-cardinality columns that look like IDs
+        uniqueness_ratio = series.nunique() / max(len(series.dropna()), 1)
+        if uniqueness_ratio > 0.95 and series.nunique() > 100:
+            return True
+    return False
+
+
 def inspect_dataset(df: pd.DataFrame, target_col: Optional[str] = None) -> Tuple[str, str, Dict[str, Any]]:
     """
     Analyzes DataFrame to determine target column (if not provided),
     problem type (classification vs regression), and features metadata.
+    High-cardinality ID/URL columns are automatically detected and excluded.
     """
     columns = list(df.columns)
     if not columns:
         raise ValueError("Dataset has no columns")
 
-    # If no target specified, use the last column
-    if not target_col or target_col not in df.columns:
-        target_col = columns[-1]
-
     # Coerce formatted numeric columns (e.g. '₹599', '6,531') to actual numeric dtype
     # Must happen BEFORE problem type detection so target column is correctly classified
     df = _coerce_numeric_columns(df)
+
+    # If no target specified, find the best candidate column (skip ID/URL columns)
+    if not target_col or target_col not in df.columns:
+        # Prefer the last non-ID column
+        candidate = None
+        for col in reversed(columns):
+            if not _is_id_or_url_column(df[col]):
+                candidate = col
+                break
+        target_col = candidate or columns[-1]
 
     # Deduce problem type
     # If target is object, categorical, boolean, or has fewer than 15 unique values
@@ -88,13 +120,25 @@ def inspect_dataset(df: pd.DataFrame, target_col: Optional[str] = None) -> Tuple
             # Exclude entirely null columns from training and feature mapping
             continue
         dtype_str = str(col_series.dtype)
+
+        # Auto-detect and mark ID/URL columns so they are excluded from training
+        if _is_id_or_url_column(col_series):
+            features_metadata[col] = {
+                "type": "categorical",
+                "null_count": null_count,
+                "dtype": dtype_str,
+                "stats": {"unique_count": col_series.nunique()},
+                "role": "ignore",
+                "explanation": "Auto-excluded: high-cardinality ID/URL column — not useful for ML."
+            }
+            continue
         
         if pd.api.types.is_numeric_dtype(col_series):
             feature_type = "numerical"
             min_val = float(col_series.min()) if not col_series.empty else 0.0  # type: ignore
             max_val = float(col_series.max()) if not col_series.empty else 0.0  # type: ignore
             mean_val = float(col_series.mean()) if not col_series.empty else 0.0  # type: ignore
-            stats = {"min": min_val, "max": max_val, "mean": mean_val}
+            stats: Dict[str, Any] = {"min": min_val, "max": max_val, "mean": mean_val}
         else:
             feature_type = "categorical"
             stats = {"unique_count": col_series.nunique()}
@@ -112,6 +156,7 @@ def inspect_dataset(df: pd.DataFrame, target_col: Optional[str] = None) -> Tuple
 def build_preprocessor(numerical_cols: List[str], categorical_cols: List[str]) -> ColumnTransformer:
     """
     Builds a scikit-learn ColumnTransformer for scaling numerical and encoding categorical variables.
+    max_categories=50 on OneHotEncoder prevents memory explosion from high-cardinality columns.
     """
     numeric_transformer = Pipeline(steps=[
         ('imputer', SimpleImputer(strategy='median')),
@@ -120,7 +165,7 @@ def build_preprocessor(numerical_cols: List[str], categorical_cols: List[str]) -
 
     categorical_transformer = Pipeline(steps=[
         ('imputer', SimpleImputer(strategy='most_frequent')),
-        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False, max_categories=50))
     ])
 
     preprocessor = ColumnTransformer(
@@ -371,7 +416,7 @@ def train_and_evaluate(
     else:
         best_pipeline.fit(X, y)
 
-    # Save best model to disk
+    # Save best model to disk with compression to keep file sizes reasonable
     os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
     joblib.dump({
         "pipeline": best_pipeline,
@@ -381,7 +426,7 @@ def train_and_evaluate(
         "label_mapping": label_mapping,
         "inverse_label_mapping": {v: k for k, v in label_mapping.items()} if label_mapping else None,
         "classes": unique_classes if problem_type == "classification" else None
-    }, model_save_path)
+    }, model_save_path, compress=3)
 
     assert best_algo_name is not None, "No model was trained successfully"
     return results, best_algo_name, results[best_algo_name]

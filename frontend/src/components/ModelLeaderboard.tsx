@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Trophy, Zap, RefreshCw, Rocket, ChevronDown, ChevronUp, Search, Download } from 'lucide-react';
-import { getModels, deployModel, getActiveDeployment, type TrainedModel, type Deployment, API_BASE } from '@/lib/api';
+import { getModels, deployModel, getActiveDeployment, downloadModel, type TrainedModel, type Deployment } from '@/lib/api';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from 'recharts';
 
 const ALGO_COLORS: Record<string, string> = {
@@ -54,6 +54,7 @@ export default function ModelLeaderboard() {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [deployMessage, setDeployMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null); // "modelId-format"
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,6 +78,18 @@ export default function ModelLeaderboard() {
     } catch (e: unknown) {
       setDeployMessage({ type: 'error', text: e instanceof Error ? e.message : 'Deploy failed.' });
     } finally { setDeploying(null); }
+  };
+
+  const handleDownload = async (model: TrainedModel, format: 'joblib' | 'pkl') => {
+    const key = `${model.id}-${format}`;
+    setDownloading(key);
+    try {
+      await downloadModel(model.id, format, `${model.model_name}.${format}`);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Download failed.');
+    } finally {
+      setDownloading(null);
+    }
   };
 
   const doneModels = models
@@ -248,22 +261,24 @@ export default function ModelLeaderboard() {
                         Trained: {new Date(model.created_at).toLocaleString()}
                       </div>
                       <div className="mt-4 flex flex-wrap gap-2">
-                        <a
-                          href={`${API_BASE}/api/models/download/${model.id}?format=joblib`}
-                          className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
-                          download
-                        >
-                          <Download size={12} />
-                          Download .joblib
-                        </a>
-                        <a
-                          href={`${API_BASE}/api/models/download/${model.id}?format=pkl`}
-                          className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
-                          download
-                        >
-                          <Download size={12} />
-                          Download .pkl
-                        </a>
+                        {(['joblib', 'pkl'] as const).map(fmt => {
+                          const key = `${model.id}-${fmt}`;
+                          const isDownloading = downloading === key;
+                          return (
+                            <button
+                              key={fmt}
+                              id={`btn-download-${model.id}-${fmt}`}
+                              onClick={() => handleDownload(model, fmt)}
+                              disabled={isDownloading}
+                              className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
+                            >
+                              {isDownloading
+                                ? <RefreshCw size={12} className="animate-spin" />
+                                : <Download size={12} />}
+                              {isDownloading ? 'Downloading…' : `Download .${fmt}`}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                     {model.metrics && Object.keys(model.metrics).length >= 3 && (
