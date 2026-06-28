@@ -25,10 +25,12 @@ function statusBadge(status: TrainedModel['status']) {
 
 function MetricRadar({ model }: { model: TrainedModel }) {
   if (!model.metrics) return null;
-  const data = Object.entries(model.metrics).map(([k, v]) => ({
-    metric: k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-    value: Math.round(v * 100),
-  }));
+  const data = Object.entries(model.metrics)
+    .filter(([, v]) => typeof v === 'number' && !isNaN(v))
+    .map(([k, v]) => ({
+      metric: k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      value: Math.round(v * 100),
+    }));
   if (data.length < 3) return null;
   const color = ALGO_COLORS[model.algorithm] ?? '#3b82f6';
   return (
