@@ -37,8 +37,10 @@ async def upload_dataset(
         with open(file_path, "wb") as buffer:
             buffer.write(await file.read())
 
-        # Load file with pandas
-        df = pd.read_csv(file_path)
+        try:
+            df = pd.read_csv(file_path)
+        except Exception:
+            df = pd.read_csv(file_path, engine='python')
         
         if df.empty:
             raise ValueError("Dataset is empty.")
@@ -124,7 +126,10 @@ def get_dataset_quality(dataset_id: int, db: Session = Depends(get_db)):
         if not db_dataset.file_path or not os.path.exists(str(db_dataset.file_path)):
             raise HTTPException(status_code=404, detail="Dataset file not found on disk.")
         try:
-            df = pd.read_csv(str(db_dataset.file_path))
+            try:
+                df = pd.read_csv(str(db_dataset.file_path))
+            except Exception:
+                df = pd.read_csv(str(db_dataset.file_path), engine='python')
             quality_report = analyze_data_quality_with_ai(df)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Quality analysis failed: {str(e)}")
@@ -153,7 +158,10 @@ def get_dataset_preview(dataset_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Dataset file missing from disk.")
 
     try:
-        df = pd.read_csv(cast(str, db_dataset.file_path), nrows=10)
+        try:
+            df = pd.read_csv(cast(str, db_dataset.file_path), nrows=10)
+        except Exception:
+            df = pd.read_csv(cast(str, db_dataset.file_path), nrows=10, engine='python')
         # Handle inf/nan values to avoid JSON serialization error
         df_cleaned = df.fillna("")
         return {

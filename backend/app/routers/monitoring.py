@@ -32,7 +32,10 @@ def check_drift_endpoint(
 
     # 2. Load reference dataset
     try:
-        ref_df = pd.read_csv(dataset.file_path)
+        try:
+            ref_df = pd.read_csv(dataset.file_path)
+        except Exception:
+            ref_df = pd.read_csv(dataset.file_path, engine='python')
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load reference dataset: {str(e)}")
 

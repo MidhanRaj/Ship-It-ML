@@ -42,7 +42,10 @@ def train_model_async_task(db: Session, dataset_id: int, model_id: int):
         if not os.path.exists(dataset_file_path):
             raise FileNotFoundError(f"Dataset file missing at {dataset_file_path}")
         
-        df = pd.read_csv(dataset_file_path)
+        try:
+            df = pd.read_csv(dataset_file_path)
+        except Exception:
+            df = pd.read_csv(dataset_file_path, engine='python')
 
         # 3. Retrieve any prediction feedback data with ground truth
         # Find active deployment for this model's dataset if it exists
@@ -218,7 +221,10 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
         dataset_file_path = str(db_dataset.file_path)
         if not os.path.exists(dataset_file_path):
             raise FileNotFoundError(f"Dataset file missing at {dataset_file_path}")
-        df = pd.read_csv(dataset_file_path)
+        try:
+            df = pd.read_csv(dataset_file_path)
+        except Exception:
+            df = pd.read_csv(dataset_file_path, engine='python')
 
         # Prepare features and target
         features_metadata = db_dataset.features_metadata or {}

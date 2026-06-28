@@ -227,15 +227,17 @@ export default function ModelLeaderboard() {
                     <div className="flex-1">
                       <div className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: '#64748b' }}>Metrics</div>
                       <div className="space-y-2">
-                        {model.metrics && Object.entries(model.metrics).map(([k, v]) => (
-                          <div key={k} className="flex items-center gap-3">
-                            <span className="text-sm w-36 capitalize" style={{ color: '#94a3b8' }}>{k.replace(/_/g, ' ')}</span>
-                            <div className="progress-bar flex-1">
-                              <div className="progress-fill" style={{ width: `${v * 100}%`, background: color }} />
+                        {model.metrics && Object.entries(model.metrics)
+                          .filter(([, v]) => typeof v === 'number' && !isNaN(v))
+                          .map(([k, v]) => (
+                            <div key={k} className="flex items-center gap-3">
+                              <span className="text-sm w-36 capitalize" style={{ color: '#94a3b8' }}>{k.replace(/_/g, ' ')}</span>
+                              <div className="progress-bar flex-1">
+                                <div className="progress-fill" style={{ width: `${v * 100}%`, background: color }} />
+                              </div>
+                              <span className="mono text-xs font-bold w-12 text-right" style={{ color }}>{(v * 100).toFixed(2)}%</span>
                             </div>
-                            <span className="mono text-xs font-bold w-12 text-right" style={{ color }}>{(v * 100).toFixed(2)}%</span>
-                          </div>
-                        ))}
+                          ))}
                       </div>
                       {model.mlflow_run_id && (
                         <div className="mt-3 text-xs mono" style={{ color: '#475569' }}>
