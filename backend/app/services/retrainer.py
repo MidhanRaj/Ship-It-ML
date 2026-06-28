@@ -1,6 +1,7 @@
 import os
 import logging
 import pandas as pd
+from typing import Any, Dict, cast
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import Dataset, TrainedModel, Deployment, PredictionLog
@@ -37,10 +38,11 @@ def train_model_async_task(db: Session, dataset_id: int, model_id: int):
         )
 
         # 2. Load dataset CSV
-        if not os.path.exists(db_dataset.file_path):
-            raise FileNotFoundError(f"Dataset file missing at {db_dataset.file_path}")
+        dataset_file_path = str(db_dataset.file_path)
+        if not os.path.exists(dataset_file_path):
+            raise FileNotFoundError(f"Dataset file missing at {dataset_file_path}")
         
-        df = pd.read_csv(db_dataset.file_path)
+        df = pd.read_csv(dataset_file_path)
 
         # 3. Retrieve any prediction feedback data with ground truth
         # Find active deployment for this model's dataset if it exists
@@ -59,8 +61,8 @@ def train_model_async_task(db: Session, dataset_id: int, model_id: int):
                 logger.info(f"Retraining includes {len(feedback_logs)} prediction feedback logs.")
                 feedback_data = []
                 for log in feedback_logs:
-                    row = dict(log.input_data)
-                    row[db_dataset.target_column] = log.actual_value
+                    row = dict(cast(Dict[str, Any], log.input_data or {}))
+                    row[cast(str, db_dataset.target_column)] = log.actual_value
                     feedback_data.append(row)
                 df_feedback = pd.DataFrame(feedback_data)
                 
@@ -75,9 +77,9 @@ def train_model_async_task(db: Session, dataset_id: int, model_id: int):
         # 4. Fit AutoML models and tune hyperparameters
         results, best_algo_name, best_metrics = automl.train_and_evaluate(
             df=df,
-            target_col=db_dataset.target_column,
-            problem_type=db_dataset.problem_type,
-            features_metadata=db_dataset.features_metadata,
+            target_col=cast(str, db_dataset.target_column),
+            problem_type=cast(str, db_dataset.problem_type),
+            features_metadata=cast(Dict[str, Any], db_dataset.features_metadata or {}),
             model_save_path=model_save_path
         )
 
@@ -94,7 +96,7 @@ def train_model_async_task(db: Session, dataset_id: int, model_id: int):
         mlflow_run_id = registry_service.log_and_register_model(
             experiment_name="Ship_It_ML",
             run_name=run_name,
-            model_name=db_model.model_name,
+            model_name=cast(str, db_model.model_name),
             metrics=best_metrics,
             params=log_params,
             model_path=model_save_path
@@ -149,7 +151,7 @@ def train_model_async_task(db: Session, dataset_id: int, model_id: int):
                     db.refresh(new_deployment)
 
                     # Swap in deployment manager
-                    deployment_manager.swap_active_model(new_deployment.id, db_model.id, db_model.file_path)
+                    deployment_manager.swap_active_model(cast(int, new_deployment.id), cast(int, db_model.id), cast(str, db_model.file_path or ""))
                     
                     log_event(
                         db,
@@ -213,9 +215,10 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
         )
 
         # 1. Load dataset CSV
-        if not os.path.exists(db_dataset.file_path):
-            raise FileNotFoundError(f"Dataset file missing at {db_dataset.file_path}")
-        df = pd.read_csv(db_dataset.file_path)
+        dataset_file_path = str(db_dataset.file_path)
+        if not os.path.exists(dataset_file_path):
+            raise FileNotFoundError(f"Dataset file missing at {dataset_file_path}")
+        df = pd.read_csv(dataset_file_path)
 
         # Prepare features and target
         features_metadata = db_dataset.features_metadata or {}
@@ -262,19 +265,28 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
         label_mapping = None
         unique_classes = None
         if problem_type == "classification":
-            y_train = y_train.astype(str)
-            y_test = y_test.astype(str)
-            unique_classes = sorted(list(set(y_train.unique()) | set(y_test.unique())))
+            y_train_str = y_train.astype(str)
+            y_test_str = y_test.astype(str)
+            
+            # Map based only on classes present in the training split to keep integer indices contiguous
+            unique_classes = sorted(y_train_str.unique().tolist())
             label_mapping = {val: idx for idx, val in enumerate(unique_classes)}
-            y_train = y_train.map(label_mapping)
-            y_test = y_test.map(label_mapping)
+            
+            y_train = y_train_str.map(label_mapping)
+            
+            # Filter test set for unseen classes (classes not present in training data cannot be predicted anyway)
+            test_mask = y_test_str.isin(label_mapping.keys())
+            if not test_mask.all():
+                X_test = X_test[test_mask]
+                y_test_str = y_test_str[test_mask]
+            y_test = y_test_str.map(label_mapping)
 
         # Fit model on training split to compute metrics
         pipeline.fit(X_train, y_train)
         preds = pipeline.predict(X_test)
 
         # Evaluate model
-        metrics = {}
+        metrics: Dict[str, Any] = {}
         if problem_type == "classification":
             metrics["label_mapping"] = label_mapping
             acc = float(accuracy_score(y_test, preds))
@@ -283,7 +295,7 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
             rec = float(recall_score(y_test, preds, average='weighted', zero_division=0))
             
             try:
-                if len(unique_classes) == 2:
+                if unique_classes and len(unique_classes) == 2:
                     probs = pipeline.predict_proba(X_test)[:, 1]
                     roc = float(roc_auc_score(y_test, probs))
                 else:
@@ -301,9 +313,9 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
             })
             new_metric = f1
         else:
-            r2 = float(r2_score(y_test, preds))
-            mae = float(mean_absolute_error(y_test, preds))
-            mse = float(mean_squared_error(y_test, preds))
+            r2 = r2_score(y_test, preds)
+            mae = mean_absolute_error(y_test, preds)
+            mse = mean_squared_error(y_test, preds)
             rmse = float(np.sqrt(mse))
 
             metrics.update({
@@ -315,10 +327,14 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
             new_metric = r2
 
         # 3. Fit pipeline on full dataset
-        y_full = y
         if problem_type == "classification" and label_mapping:
-            y_full = y_full.astype(str).map(label_mapping)
-        pipeline.fit(X, y_full)
+            y_full = y.astype(str).map(label_mapping)
+            valid_idx = y_full.dropna().index
+            X_full = X.loc[valid_idx]
+            y_full = y_full.loc[valid_idx]
+            pipeline.fit(X_full, y_full)
+        else:
+            pipeline.fit(X, y)
 
         # Save retrained model to disk
         model_filename = f"model_v{db_model.version}_custom_{db_model.model_name}.joblib"
@@ -346,7 +362,7 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
         mlflow_run_id = registry_service.log_and_register_model(
             experiment_name="Ship_It_ML",
             run_name=run_name,
-            model_name=db_model.model_name,
+            model_name=cast(str, db_model.model_name),
             metrics=metrics,
             params=log_params,
             model_path=model_save_path
@@ -402,7 +418,7 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
                     db.commit()
                     db.refresh(new_deployment)
 
-                    deployment_manager.swap_active_model(new_deployment.id, db_model.id, db_model.file_path)
+                    deployment_manager.swap_active_model(cast(int, new_deployment.id), cast(int, db_model.id), cast(str, db_model.file_path or ""))
                     
                     log_event(
                         db,

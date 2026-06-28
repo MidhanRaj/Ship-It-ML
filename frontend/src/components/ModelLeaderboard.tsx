@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Trophy, Zap, RefreshCw, Rocket, ChevronDown, ChevronUp, Search } from 'lucide-react';
-import { getModels, deployModel, getActiveDeployment, type TrainedModel, type Deployment } from '@/lib/api';
+import { Trophy, Zap, RefreshCw, Rocket, ChevronDown, ChevronUp, Search, Download } from 'lucide-react';
+import { getModels, deployModel, getActiveDeployment, type TrainedModel, type Deployment, API_BASE } from '@/lib/api';
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from 'recharts';
 
 const ALGO_COLORS: Record<string, string> = {
@@ -242,6 +242,24 @@ export default function ModelLeaderboard() {
                       )}
                       <div className="mt-2 text-xs" style={{ color: '#475569' }}>
                         Trained: {new Date(model.created_at).toLocaleString()}
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <a
+                          href={`${API_BASE}/api/models/download/${model.id}?format=joblib`}
+                          className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
+                          download
+                        >
+                          <Download size={12} />
+                          Download .joblib
+                        </a>
+                        <a
+                          href={`${API_BASE}/api/models/download/${model.id}?format=pkl`}
+                          className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
+                          download
+                        >
+                          <Download size={12} />
+                          Download .pkl
+                        </a>
                       </div>
                     </div>
                     {model.metrics && Object.keys(model.metrics).length >= 3 && (

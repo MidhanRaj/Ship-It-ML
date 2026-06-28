@@ -158,6 +158,19 @@ def test_e2e_lifecycle(db_session):
     feedback_res = response.json()
     assert feedback_res["status"] == "success"
 
+    # 7. Test download endpoint
+    # Test joblib download
+    response = client.get(f"/api/models/download/{model_id}?format=joblib")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert "attachment; filename=" in response.headers["content-disposition"]
+
+    # Test pkl download
+    response = client.get(f"/api/models/download/{model_id}?format=pkl")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert "attachment; filename=" in response.headers["content-disposition"]
+
     # Cleanup models saved on disk during test
     if db_model.file_path and os.path.exists(db_model.file_path):
         os.remove(db_model.file_path)

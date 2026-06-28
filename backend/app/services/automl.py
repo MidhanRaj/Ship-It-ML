@@ -2,7 +2,7 @@ import os
 import joblib
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional, Union, cast
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -18,7 +18,9 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from xgboost import XGBClassifier, XGBRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
 
-def inspect_dataset(df: pd.DataFrame, target_col: str = None) -> Tuple[str, str, Dict[str, Any]]:
+EstimatorType = Any  # alias for pipelines/estimators
+
+def inspect_dataset(df: pd.DataFrame, target_col: Optional[str] = None) -> Tuple[str, str, Dict[str, Any]]:
     """
     Analyzes DataFrame to determine target column (if not provided),
     problem type (classification vs regression), and features metadata.
@@ -49,7 +51,7 @@ def inspect_dataset(df: pd.DataFrame, target_col: str = None) -> Tuple[str, str,
         if col == target_col:
             continue
         col_series = df[col]
-        null_count = int(col_series.isnull().sum())
+        null_count = int(col_series.isnull().sum())  # type: ignore
         if null_count == len(df):
             # Exclude entirely null columns from training and feature mapping
             continue
@@ -57,9 +59,9 @@ def inspect_dataset(df: pd.DataFrame, target_col: str = None) -> Tuple[str, str,
         
         if pd.api.types.is_numeric_dtype(col_series):
             feature_type = "numerical"
-            min_val = float(col_series.min()) if not col_series.empty else 0.0
-            max_val = float(col_series.max()) if not col_series.empty else 0.0
-            mean_val = float(col_series.mean()) if not col_series.empty else 0.0
+            min_val = float(col_series.min()) if not col_series.empty else 0.0  # type: ignore
+            max_val = float(col_series.max()) if not col_series.empty else 0.0  # type: ignore
+            mean_val = float(col_series.mean()) if not col_series.empty else 0.0  # type: ignore
             stats = {"min": min_val, "max": max_val, "mean": mean_val}
         else:
             feature_type = "categorical"
@@ -124,21 +126,27 @@ def train_and_evaluate(
         X = X.loc[valid_indices]
         y = y.loc[valid_indices]
 
-    # Build label mapping from FULL y BEFORE splitting.
-    # This ensures every CV fold and train/test split uses the same
-    # contiguous 0..N mapping, preventing the "Invalid classes" error
-    # that occurs when a CV fold's validation set contains classes
-    # the fold's training set never saw.
     label_mapping = None
     unique_classes = None
     if problem_type == "classification":
         y_str = y.astype(str)
-        unique_classes = sorted(y_str.unique().tolist())
+        X_train, X_test, y_train_str, y_test_str = train_test_split(X, y_str, test_size=0.2, random_state=42)
+        
+        # Build contiguous label mapping from y_train_str only.
+        # This ensures y_train has contiguous labels starting from 0, preventing XGBoost's "Invalid classes" error.
+        unique_classes = sorted(y_train_str.unique().tolist())
         label_mapping = {val: idx for idx, val in enumerate(unique_classes)}
-        y = y_str.map(label_mapping)
-
-    # Train/Test Split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        y_train = y_train_str.map(label_mapping)
+        
+        # Filter test set for unseen classes (classes not present in training data cannot be predicted anyway)
+        test_mask = y_test_str.isin(label_mapping.keys())
+        if not test_mask.all():
+            X_test = X_test[test_mask]
+            y_test_str = y_test_str[test_mask]
+        y_test = y_test_str.map(label_mapping)
+    else:
+        # Train/Test Split for regression
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     # Build the Preprocessor
     preprocessor = build_preprocessor(numerical_cols, categorical_cols)
@@ -200,13 +208,13 @@ def train_and_evaluate(
             }
         }
 
-    results = {}
+    results: Dict[str, Any] = {}
     best_score = -float('inf')
     best_algo_name = None
-    best_pipeline = None
+    best_pipeline: Any = None
 
     for name, model in models_to_train.items():
-        # Create pipeline with preprocessor and model
+        best_model_pipeline: Pipeline = Pipeline(steps=[])  # will be set below
         pipeline = Pipeline(steps=[
             ('preprocessor', preprocessor),
             ('model', model)
@@ -250,7 +258,7 @@ def train_and_evaluate(
                     n_jobs=1
                 )
                 search.fit(X_train, y_train)
-                best_model_pipeline = search.best_estimator_
+                best_model_pipeline = cast(Pipeline, search.best_estimator_)
             else:
                 # Fall back: direct fit on training set (no CV)
                 pipeline.fit(X_train, y_train)
@@ -259,7 +267,7 @@ def train_and_evaluate(
         # Evaluate on test set
         preds = best_model_pipeline.predict(X_test)
         
-        metrics = {}
+        metrics: Dict[str, Any] = {}
         if problem_type == "classification":
             # Add label mapper to metrics to decode predictions later
             metrics["label_mapping"] = label_mapping
@@ -272,7 +280,7 @@ def train_and_evaluate(
             
             # Try computing ROC AUC
             try:
-                if len(unique_classes) == 2:
+                if unique_classes and len(unique_classes) == 2:
                     probs = best_model_pipeline.predict_proba(X_test)[:, 1]
                     roc = float(roc_auc_score(y_test, probs))
                 else:
@@ -290,9 +298,9 @@ def train_and_evaluate(
             })
             comparison_metric = f1
         else:
-            r2 = float(r2_score(y_test, preds))
-            mae = float(mean_absolute_error(y_test, preds))
-            mse = float(mean_squared_error(y_test, preds))
+            r2 = r2_score(y_test, preds)
+            mae = mean_absolute_error(y_test, preds)
+            mse = mean_squared_error(y_test, preds)
             rmse = float(np.sqrt(mse))
 
             metrics.update({
@@ -312,8 +320,15 @@ def train_and_evaluate(
             best_pipeline = best_model_pipeline
 
     # Refit best model on full dataset.
-    # y is already encoded (label_mapping was applied before the split)
-    best_pipeline.fit(X, y)
+    # We must only include classes that were present in the training set (which are in label_mapping)
+    if problem_type == "classification" and label_mapping:
+        y_full = y.astype(str).map(label_mapping)
+        valid_idx = y_full.dropna().index
+        X_full = X.loc[valid_idx]
+        y_full = y_full.loc[valid_idx]
+        best_pipeline.fit(X_full, y_full)
+    else:
+        best_pipeline.fit(X, y)
 
     # Save best model to disk
     os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
@@ -327,4 +342,5 @@ def train_and_evaluate(
         "classes": unique_classes if problem_type == "classification" else None
     }, model_save_path)
 
+    assert best_algo_name is not None, "No model was trained successfully"
     return results, best_algo_name, results[best_algo_name]
