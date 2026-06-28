@@ -1,5 +1,6 @@
 import os
 import uuid
+from typing import cast
 import pandas as pd
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form
 from sqlalchemy.orm import Session
@@ -9,7 +10,7 @@ from app.models import Dataset
 from app.schemas import DatasetRead
 from app.services.automl import inspect_dataset
 from app.services.audit_logger import log_event
-from app.services.ai_analyzer import analyze_dataset_with_ai
+from app.services.ai_analyzer import analyze_dataset_with_ai, analyze_data_quality_with_ai
 
 router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
 
@@ -24,7 +25,7 @@ async def upload_dataset(
     Saves the file, performs automated data profiling, determines target column
     and problem type (classification vs regression), and stores metadata.
     """
-    if not file.filename.endswith(".csv"):
+    if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported.")
 
     # Generate unique file path
@@ -45,8 +46,13 @@ async def upload_dataset(
         row_count = len(df)
         column_count = len(df.columns)
 
-        # Call AI analyzer
+        # Call AI analyzer for profiling
         ai_result = analyze_dataset_with_ai(df, target_column)
+
+        # Run Gemini data quality advisor
+        quality_report = analyze_data_quality_with_ai(df)
+        ai_result["quality_report"] = quality_report
+
         final_target_col = target_column or ai_result.get("suggested_target")
         problem_type = ai_result.get("suggested_problem_type", "classification")
 
@@ -100,6 +106,32 @@ async def upload_dataset(
         raise HTTPException(status_code=400, detail=f"Failed to process CSV file: {str(e)}")
 
 
+@router.get("/{dataset_id}/quality")
+def get_dataset_quality(dataset_id: int, db: Session = Depends(get_db)):
+    """
+    Returns the Gemini-powered data quality report for a dataset.
+    Includes detected issues, severity levels, recommended fixes, and an overall score.
+    """
+    db_dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not db_dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+
+    ai_analysis = db_dataset.ai_analysis or {}
+    quality_report = ai_analysis.get("quality_report")
+
+    if not quality_report:
+        # Re-run quality analysis on the fly if it wasn't stored
+        if not db_dataset.file_path or not os.path.exists(str(db_dataset.file_path)):
+            raise HTTPException(status_code=404, detail="Dataset file not found on disk.")
+        try:
+            df = pd.read_csv(str(db_dataset.file_path))
+            quality_report = analyze_data_quality_with_ai(df)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Quality analysis failed: {str(e)}")
+
+    return quality_report
+
+
 @router.get("", response_model=list[DatasetRead])
 def list_datasets(db: Session = Depends(get_db)):
     """
@@ -117,11 +149,11 @@ def get_dataset_preview(dataset_id: int, db: Session = Depends(get_db)):
     if not db_dataset:
         raise HTTPException(status_code=404, detail="Dataset not found.")
 
-    if not os.path.exists(db_dataset.file_path):
+    if not os.path.exists(cast(str, db_dataset.file_path)):
         raise HTTPException(status_code=404, detail="Dataset file missing from disk.")
 
     try:
-        df = pd.read_csv(db_dataset.file_path, nrows=10)
+        df = pd.read_csv(cast(str, db_dataset.file_path), nrows=10)
         # Handle inf/nan values to avoid JSON serialization error
         df_cleaned = df.fillna("")
         return {

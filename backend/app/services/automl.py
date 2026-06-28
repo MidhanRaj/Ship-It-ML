@@ -20,6 +20,31 @@ from lightgbm import LGBMClassifier, LGBMRegressor
 
 EstimatorType = Any  # alias for pipelines/estimators
 
+
+def _coerce_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    For every object-dtype column, attempt to strip common currency/formatting
+    characters (₹, $, £, €, commas, %) and coerce to numeric. If successful,
+    the column is converted in-place so downstream type detection works correctly.
+    This handles datasets like Amazon sales where prices are stored as '₹599' or
+    counts as '6,531'.
+    """
+    df = df.copy()
+    for col in df.columns:
+        if df[col].dtype == object:
+            cleaned = (
+                df[col]
+                .astype(str)
+                .str.replace(r'[₹$£€,\s%]', '', regex=True)
+                .str.strip()
+            )
+            converted: pd.Series = pd.to_numeric(cleaned, errors='coerce')  # type: ignore[assignment]
+            # Only apply conversion if majority of non-null values became numeric
+            non_null = int(df[col].notna().sum())  # type: ignore[arg-type]
+            if non_null > 0 and int(converted.notna().sum()) / non_null >= 0.8:  # type: ignore[arg-type]
+                df[col] = converted
+    return df
+
 def inspect_dataset(df: pd.DataFrame, target_col: Optional[str] = None) -> Tuple[str, str, Dict[str, Any]]:
     """
     Analyzes DataFrame to determine target column (if not provided),
@@ -32,6 +57,10 @@ def inspect_dataset(df: pd.DataFrame, target_col: Optional[str] = None) -> Tuple
     # If no target specified, use the last column
     if not target_col or target_col not in df.columns:
         target_col = columns[-1]
+
+    # Coerce formatted numeric columns (e.g. '₹599', '6,531') to actual numeric dtype
+    # Must happen BEFORE problem type detection so target column is correctly classified
+    df = _coerce_numeric_columns(df)
 
     # Deduce problem type
     # If target is object, categorical, boolean, or has fewer than 15 unique values
@@ -114,6 +143,9 @@ def train_and_evaluate(
     # Determine numerical and categorical feature lists, excluding ignored columns
     numerical_cols = [col for col, meta in features_metadata.items() if meta.get("role") != "ignore" and meta["type"] == "numerical"]
     categorical_cols = [col for col, meta in features_metadata.items() if meta.get("role") != "ignore" and meta["type"] == "categorical"]
+
+    # Coerce formatted numeric columns to actual numeric types before splitting
+    df = _coerce_numeric_columns(df)
 
     # 1. Split features and target
     features_to_use = numerical_cols + categorical_cols
