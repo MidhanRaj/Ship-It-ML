@@ -281,6 +281,12 @@ def retrain_uploaded_model_async_task(db: Session, dataset_id: int, model_id: in
                 y_test_str = y_test_str[test_mask]
             y_test = y_test_str.map(label_mapping)
 
+        # Fallback to prevent "Found array with 0 sample(s)" errors during validation/evaluation
+        if X_test.empty:
+            logger.warning("Test split is empty after filtering unseen classes or split. Falling back to training set for evaluation.")
+            X_test = X_train.copy()
+            y_test = y_train.copy()
+
         # Fit model on training split to compute metrics
         pipeline.fit(X_train, y_train)
         preds = pipeline.predict(X_test)

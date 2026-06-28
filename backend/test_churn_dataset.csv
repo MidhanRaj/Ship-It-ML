@@ -1,7 +1,0 @@
-age,income,gender,churn
-25,50000,M,no
-45,80000,F,yes
-30,60000,M,no
-50,100000,F,yes
-35,75000,M,no
-40,90000,F,yes

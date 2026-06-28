@@ -1,8 +1,11 @@
 import os
 import joblib
+import logging
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, Tuple, List, Optional, Union, cast
+
+logger = logging.getLogger(__name__)
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -179,6 +182,12 @@ def train_and_evaluate(
     else:
         # Train/Test Split for regression
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    # Fallback to prevent "Found array with 0 sample(s)" errors during validation/evaluation
+    if X_test.empty:
+        logger.warning("Test split is empty after filtering unseen classes or split. Falling back to training set for evaluation.")
+        X_test = X_train.copy()
+        y_test = y_train.copy()
 
     # Build the Preprocessor
     preprocessor = build_preprocessor(numerical_cols, categorical_cols)

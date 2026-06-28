@@ -53,3 +53,35 @@ def test_build_preprocessor():
     assert transformed.shape == (3, 3)
     # Check that nulls were imputed (no NaN in transformed array)
     assert not np.isnan(transformed).any()
+
+
+def test_empty_test_set_fallback():
+    import os
+    import tempfile
+    from app.services.automl import train_and_evaluate
+    
+    # Small dataset with unique classes so that the test row's class is unseen in the training set
+    data = {
+        "feat_num": [1.0, 2.0, 3.0, 4.0, 5.0],
+        "feat_cat": ["A", "B", "A", "B", "A"],
+        "label": ["yes", "no", "maybe", "unknown", "other"]
+    }
+    df = pd.DataFrame(data)
+    
+    metadata = {
+        "feat_num": {"type": "numerical", "null_count": 0, "dtype": "float64", "stats": {}},
+        "feat_cat": {"type": "categorical", "null_count": 0, "dtype": "object", "stats": {}}
+    }
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        model_save_path = os.path.join(tmpdir, "test_model.joblib")
+        results, best_algo, best_metrics = train_and_evaluate(
+            df=df,
+            target_col="label",
+            problem_type="classification",
+            features_metadata=metadata,
+            model_save_path=model_save_path
+        )
+        assert best_algo is not None
+        assert os.path.exists(model_save_path)
+

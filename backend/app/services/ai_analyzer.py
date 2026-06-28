@@ -1,7 +1,7 @@
 import logging
 import json
 import pandas as pd
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, cast
 from app.config import settings
 
 logger = logging.getLogger(__name__)
